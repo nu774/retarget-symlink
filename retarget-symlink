@@ -1,0 +1,48 @@
+#!/usr/bin/perl -w
+
+use strict;
+
+use Getopt::Long;
+Getopt::Long::Configure('bundling');
+
+sub create_symlink {
+    my ($src, $dst) = @_;
+    for (; !symlink($src, $dst); $dst .= "_") {
+        return undef if (not $!{EEXIST});
+    }
+    return $dst;
+}
+
+my ($verbose, $dry_run, $op);
+
+die "Usage: retarget-symlink [-v] [-n] perlexpr [filenames]\n"
+    unless GetOptions(
+        'v|verbose' => \$verbose,
+        'n|dry-run' => \$dry_run,
+    ) and $op = shift;
+
+$verbose++ if $dry_run;
+
+if (!@ARGV) {
+    print "reading filenames from STDIN\n" if $verbose;
+    @ARGV = <STDIN>;
+    chop(@ARGV);
+}
+
+for my $path (@ARGV) {
+    next if not -l $path;
+    my $was = readlink $path;
+    $_ = $was;
+    eval $op;
+    die $@ if $@;
+    my $new = $_;
+    next if $was eq $new;
+    unless ($dry_run) {
+        my $path2 = create_symlink($new, $path);
+        if (not defined $path2 or not rename($path2, $path)) {
+            warn "can't symlink $path -> $new: $!\n";
+            next;
+        }
+    }
+    print "$path -> $new\n" if $verbose;
+}
